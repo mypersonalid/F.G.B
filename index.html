@@ -1,0 +1,377 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secure Terminal</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;min-height:100vh;padding:16px;
+  display:flex;align-items:center;justify-content:center;
+  background:#000;color:#00ff66;
+  font-family:Consolas,"Courier New",monospace
+}
+.screen{width:100%;max-width:520px;text-align:center}
+.hidden{display:none!important}
+h1{font-size:clamp(18px,4vw,24px);margin-bottom:22px}
+.loader{letter-spacing:2px;animation:pulse 1s infinite}
+.spinner{
+  width:42px;height:42px;margin:22px auto;
+  border:3px solid #12351f;border-top-color:#00ff66;
+  border-radius:50%;animation:spin .8s linear infinite
+}
+input[type=password],input[type=text]{
+  width:100%;padding:14px;margin-bottom:12px;
+  background:#050505;color:#00ff66;border:1px solid #00a844;
+  border-radius:5px;text-align:center;font:inherit;outline:none
+}
+button{
+  padding:12px 22px;border:1px solid #00ff66;border-radius:5px;
+  background:#001b0b;color:#00ff66;font:inherit;font-weight:bold;
+  cursor:pointer;transition:.2s
+}
+button:hover{background:#003b18;box-shadow:0 0 14px #00ff6644}
+button:active{transform:scale(.96)}
+.action-button{min-width:145px;margin:5px}
+.error{color:#ff4545;min-height:22px;margin-top:10px;font-size:13px}
+.countdown{font-size:44px;margin:18px;text-shadow:0 0 16px #00ff66}
+.status{
+  min-height:48px;margin:8px 0 20px;
+  font-size:clamp(13px,3.5vw,18px);
+  line-height:1.7;overflow-wrap:anywhere
+}
+.lines{display:grid;gap:13px;margin:22px 0 25px}
+.line-row{
+  display:grid;grid-template-columns:minmax(0,1fr) 48px;
+  align-items:center;gap:9px;padding:10px;
+  border:1px solid #12351f;border-radius:5px;background:#020604
+}
+.line-visual{display:flex;align-items:center;gap:7px;min-width:0}
+.zero{font-size:13px;flex-shrink:0}
+.range{width:100%;min-width:0;accent-color:#00ff66;cursor:pointer}
+.value{text-align:right;font-size:14px}
+.success{animation:pop .45s ease;background:#00ff66;color:#001507}
+.final-buttons{display:flex;justify-content:center;flex-wrap:wrap;gap:8px}
+#openGameBtn{background:#003b18;box-shadow:0 0 12px #00ff6644}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{50%{opacity:.4}}
+@keyframes pop{
+  0%{transform:scale(1)}
+  45%{transform:scale(1.09);box-shadow:0 0 25px #00ff66}
+  100%{transform:scale(1)}
+}
+@media(max-width:360px){
+  body{padding:10px}
+  .line-row{padding:8px;gap:5px}
+  .lines{gap:9px}
+  button{padding:11px 16px}
+}
+</style>
+</head>
+<body>
+<main class="screen">
+
+  <section id="loading">
+    <div class="loader">INITIALIZING SYSTEM...</div>
+    <div class="spinner"></div>
+    <div>PLEASE WAIT</div>
+  </section>
+
+  <section id="login" class="hidden">
+    <h1>ACCESS TERMINAL</h1>
+    <form id="loginForm">
+      <input id="password" type="password"
+        placeholder="Enter password" autocomplete="off" required>
+      <button type="submit">ENTER</button>
+    </form>
+    <div id="error" class="error"></div>
+  </section>
+
+  <section id="connected" class="hidden">
+    <h1>CONNECTION TERMINAL</h1>
+    <div id="countdown" class="countdown">5</div>
+    <div id="status" class="status"></div>
+
+    <div id="controls" class="hidden">
+      <div id="lines" class="lines"></div>
+      <button type="button" id="firstConfirm" class="action-button">
+        Confirm
+      </button>
+    </div>
+
+    <div id="uidStep" class="hidden">
+      <input id="uidInput" type="text" inputmode="numeric"
+        placeholder="Enter your UID" autocomplete="off">
+      <button type="button" id="uidConfirm" class="action-button">
+        Confirm
+      </button>
+      <div id="uidError" class="error"></div>
+    </div>
+
+    <div id="processingStep" class="hidden">
+      <div class="spinner"></div>
+      <div>Processing...</div>
+      <div id="processingCountdown" class="countdown">8</div>
+    </div>
+
+    <div id="finalStep" class="hidden">
+      <div id="finalMessage" class="status"></div>
+      <div id="finalButtons" class="final-buttons hidden">
+        <button type="button" id="openGameBtn" class="action-button">
+          OPEN GAME
+        </button>
+        <button type="button" id="backBtn" class="action-button">
+          Back
+        </button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const loading=$("loading");
+const login=$("login");
+const connected=$("connected");
+const form=$("loginForm");
+const passwordInput=$("password");
+const error=$("error");
+const countdownEl=$("countdown");
+const statusEl=$("status");
+const controls=$("controls");
+const linesEl=$("lines");
+const firstConfirm=$("firstConfirm");
+const uidStep=$("uidStep");
+const uidInput=$("uidInput");
+const uidConfirm=$("uidConfirm");
+const uidError=$("uidError");
+const processingStep=$("processingStep");
+const processingCountdown=$("processingCountdown");
+const finalStep=$("finalStep");
+const finalMessage=$("finalMessage");
+const finalButtons=$("finalButtons");
+const openGameBtn=$("openGameBtn");
+const backBtn=$("backBtn");
+
+let timers=[];
+
+function later(callback,delay){
+  const timer=setTimeout(callback,delay);
+  timers.push(timer);
+  return timer;
+}
+
+function clearTimers(){
+  timers.forEach(timer=>{
+    clearTimeout(timer);
+    clearInterval(timer);
+  });
+  timers=[];
+}
+
+// Loading screen
+later(()=>{
+  loading.classList.add("hidden");
+  login.classList.remove("hidden");
+},2500);
+
+// Password verification
+form.addEventListener("submit",event=>{
+  event.preventDefault();
+
+  if(passwordInput.value!=="282010"){
+    error.textContent="ACCESS DENIED — Incorrect password";
+    passwordInput.value="";
+    passwordInput.focus();
+    return;
+  }
+
+  error.textContent="";
+  login.classList.add("hidden");
+  connected.classList.remove("hidden");
+  startCountdown();
+});
+
+// Five-second countdown
+function startCountdown(){
+  clearTimers();
+  resetScreen();
+
+  let seconds=5;
+  countdownEl.textContent=seconds;
+  countdownEl.classList.remove("hidden");
+
+  const timer=setInterval(()=>{
+    seconds--;
+
+    if(seconds>0){
+      countdownEl.textContent=seconds;
+    }else{
+      clearInterval(timer);
+      countdownEl.classList.add("hidden");
+
+      typeText(statusEl,
+        "Connected your free fire id successfully",
+        ()=>controls.classList.remove("hidden"));
+    }
+  },1000);
+
+  timers.push(timer);
+}
+
+// Typing animation
+function typeText(element,text,callback,speed=35){
+  element.textContent="";
+  let index=0;
+
+  const timer=setInterval(()=>{
+    element.textContent+=text.charAt(index);
+    index++;
+
+    if(index>=text.length){
+      clearInterval(timer);
+      if(callback)callback();
+    }
+  },speed);
+
+  timers.push(timer);
+}
+
+// Six adjustable sliders
+function createSliders(){
+  linesEl.innerHTML="";
+
+  for(let i=1;i<=6;i++){
+    const row=document.createElement("div");
+    row.className="line-row";
+
+    const visual=document.createElement("div");
+    visual.className="line-visual";
+
+    const zero=document.createElement("span");
+    zero.className="zero";
+    zero.textContent="0";
+
+    const slider=document.createElement("input");
+    slider.type="range";
+    slider.className="range";
+    slider.min="1";
+    slider.max="200";
+    slider.value="200";
+    slider.setAttribute("aria-label","Line "+i);
+
+    const value=document.createElement("span");
+    value.className="value";
+    value.textContent="200";
+
+    slider.addEventListener("input",()=>{
+      value.textContent=slider.value;
+    });
+
+    visual.append(zero,slider);
+    row.append(visual,value);
+    linesEl.appendChild(row);
+  }
+}
+createSliders();
+
+// First Confirm -> Waiting -> UID
+firstConfirm.addEventListener("click",()=>{
+  controls.classList.add("hidden");
+  firstConfirm.classList.add("success");
+  firstConfirm.textContent="Confirmed ✓";
+
+  later(()=>{
+    typeText(statusEl,"Waiting...",()=>{
+      uidStep.classList.remove("hidden");
+      uidInput.focus();
+    });
+  },500);
+});
+
+// UID -> Processing
+uidConfirm.addEventListener("click",()=>{
+  if(!uidInput.value.trim()){
+    uidError.textContent="Please enter your UID.";
+    uidInput.focus();
+    return;
+  }
+
+  uidError.textContent="";
+  uidStep.classList.add("hidden");
+  statusEl.textContent="";
+  processingStep.classList.remove("hidden");
+
+  let seconds=8;
+  processingCountdown.textContent=seconds;
+
+  const timer=setInterval(()=>{
+    seconds--;
+
+    if(seconds>0){
+      processingCountdown.textContent=seconds;
+    }else{
+      clearInterval(timer);
+      processingStep.classList.add("hidden");
+      showFinalMessage();
+    }
+  },1000);
+
+  timers.push(timer);
+});
+
+// Final message and buttons
+function showFinalMessage(){
+  finalStep.classList.remove("hidden");
+  finalButtons.classList.add("hidden");
+
+  typeText(finalMessage,
+    "completed game terbo please open your game and play and try again soon.....",
+    ()=>finalButtons.classList.remove("hidden"),
+    40);
+}
+
+// Only attempt to open Free Fire
+openGameBtn.addEventListener("click",()=>{
+  window.location.href =
+    "intent://#Intent;action=android.intent.action.MAIN;" +
+    "category=android.intent.category.LAUNCHER;" +
+    "package=com.dts.freefireth;end";
+});
+
+// Back to password screen
+backBtn.addEventListener("click",()=>{
+  clearTimers();
+  connected.classList.add("hidden");
+  finalStep.classList.add("hidden");
+  login.classList.remove("hidden");
+
+  passwordInput.value="";
+  error.textContent="";
+  resetScreen();
+  passwordInput.focus();
+});
+
+function resetScreen(){
+  statusEl.textContent="";
+  controls.classList.add("hidden");
+  uidStep.classList.add("hidden");
+  processingStep.classList.add("hidden");
+  finalStep.classList.add("hidden");
+  finalButtons.classList.add("hidden");
+
+  uidInput.value="";
+  uidError.textContent="";
+  finalMessage.textContent="";
+  processingCountdown.textContent="8";
+  countdownEl.textContent="5";
+  firstConfirm.textContent="Confirm";
+  firstConfirm.classList.remove("success");
+}
+</script>
+</body>
+  </html>
+  
